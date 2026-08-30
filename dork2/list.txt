@@ -1,0 +1,5 @@
+intitle:"my blog my wordpress blog" site:com
+intitle:"my blog my wordpress blog" site:id
+intitle:"my blog my wordpress blog" site:net
+intitle:"my blog my wordpress blog" site:co.id
+intitle:"my blog my wordpress blog" site:com.my

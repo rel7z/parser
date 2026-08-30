@@ -1,0 +1,10 @@
+{
+  "type": "module",
+  "name": "web-scraper",
+  "version": "1.0.0",
+  "description": "Web scraper tools",
+  "main": "index.js",
+  "dependencies": {
+    "apify-client": "latest"
+  }
+}

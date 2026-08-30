@@ -1,0 +1,7 @@
+inurl:/components/com_gridbox/
+inurl:index.php?option=com_ site:id
+inurl:index.php?option=com_ site:com
+inurl:index.php?option=com_ site:net
+inurl:index.php?option=com_ site:my
+
+
