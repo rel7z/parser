@@ -13,12 +13,35 @@ import (
 )
 
 const (
-	workers       = 20000
-	pingTimeout   = 800 * time.Millisecond
-	portTimeout   = 3 * time.Second
-	batchSize     = 50000
-	writeBuffer   = 2 * 1024 * 1024
+	pingTimeout = 800 * time.Millisecond
+	portTimeout = 3 * time.Second
+	batchSize   = 10000
+	writeBuffer = 512 * 1024
+	flushEvery  = 500 * time.Millisecond
 )
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+var workers = func() int {
+	cpus := runtime.NumCPU()
+	// Keep goroutine count sane for blocking network I/O.
+	// Each blocked DialTimeout causes Go to spawn an OS thread;
+	// too many threads → "failed to create new OS thread".
+	// 500 concurrent dials is already very aggressive.
+	w := cpus * 500
+	if w > 1000 {
+		return 1000
+	}
+	if w < 500 {
+		return 500
+	}
+	return w
+}()
 
 var (
 	processed  uint64
@@ -32,7 +55,10 @@ func main() {
 	portOut := flag.String("p", "60.txt", "Output file for port 80 open")
 	flag.Parse()
 
-	runtime.GOMAXPROCS(runtime.NumCPU() * 4)
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
+	var pingMu sync.Mutex
+	var portMu sync.Mutex
 
 	f, err := os.Open(*inputFile)
 	if err != nil {
@@ -63,10 +89,24 @@ func main() {
 
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
-		go worker(ipChan, pingWriter, portWriter, &wg)
+		go worker(ipChan, pingWriter, portWriter, &wg, &pingMu, &portMu)
 	}
 
 	go statsReporter()
+
+	// Flush output files to disk periodically so results appear in real-time.
+	go func() {
+		ticker := time.NewTicker(flushEvery)
+		defer ticker.Stop()
+		for range ticker.C {
+			pingMu.Lock()
+			pingWriter.Flush()
+			pingMu.Unlock()
+			portMu.Lock()
+			portWriter.Flush()
+			portMu.Unlock()
+		}
+	}()
 
 	scanner := bufio.NewScanner(f)
 	buf := make([]byte, 0, 64*1024)
@@ -100,11 +140,8 @@ func main() {
 		atomic.LoadUint64(&processed), atomic.LoadUint64(&validPing), atomic.LoadUint64(&openPort80))
 }
 
-func worker(ipChan <-chan string, pingWriter, portWriter *bufio.Writer, wg *sync.WaitGroup) {
+func worker(ipChan <-chan string, pingWriter, portWriter *bufio.Writer, wg *sync.WaitGroup, pingMu, portMu *sync.Mutex) {
 	defer wg.Done()
-
-	pingMu := &sync.Mutex{}
-	portMu := &sync.Mutex{}
 
 	for ip := range ipChan {
 		atomic.AddUint64(&processed, 1)
